@@ -13,7 +13,7 @@ const app = express();
 
 // CORS ko thoda flexible banaya hai taaki Vercel aur localhost dono par chale
 app.use(cors({ 
-  origin: ["http://localhost:5173", process.env.FRONTEND_URL], // Apna production URL env mein daal dena
+  origin: ["http://localhost:5173", "https://mahadematka.vercel.app", process.env.FRONTEND_URL], // Apna production URL env mein daal dena
   credentials: true 
 }));
 
