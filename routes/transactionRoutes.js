@@ -1,5 +1,5 @@
 import express from 'express';
-import { createDepositRequest, updateTransactionStatus, getAllPendingDeposits ,getAllPendingWithdrawals,updateWithdrowalStatus,allTransaction,createWithdrawalRequest} from '../Controller/transactionController.js';
+import { createDepositRequest, updateTransactionStatus, getAllPendingDeposits ,getAllPendingWithdrawals,updateWithdrowalStatus,allTransaction,createWithdrawalRequest, getAllWithdrawals } from '../Controller/transactionController.js';
 import {authToken   } from '../middleware/authToken.js';
 const transactionRouter = express.Router();
 
@@ -12,6 +12,8 @@ transactionRouter.post('/withdraw',authToken, createWithdrawalRequest);
 transactionRouter.get('/pending-deposits',authToken, getAllPendingDeposits);
 transactionRouter.get('/pending-withdrawals', getAllPendingWithdrawals);
 transactionRouter.post('/update-status', updateWithdrowalStatus);
+transactionRouter.put('/update-withdrawal-status', updateWithdrowalStatus);
+transactionRouter.get('/all-withdrawals', getAllWithdrawals);
 transactionRouter.get('/all-transactions', allTransaction);
 
 

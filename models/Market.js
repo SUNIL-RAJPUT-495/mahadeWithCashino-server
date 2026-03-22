@@ -15,6 +15,18 @@ const marketSchema = new mongoose.Schema({
     type: String, 
     required: true 
   }, // e.g., "12:00 PM"
+  open_pana: {
+    type: String,
+    default: '***' // Default value jab tak result na aaye
+  },
+  jodi_result: {
+    type: String,
+    default: '**' // Middle result
+  },
+  close_pana: {
+    type: String,
+    default: '***' // Default value
+  },
   status: { 
     type: String, 
     enum: ['Active', 'Closed'], 

@@ -1,4 +1,6 @@
 import User from '../models/User.js';
+import Transaction from '../models/Transaction.js';
+import Bet from '../models/Bid.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 
@@ -139,12 +141,179 @@ export const getUserProfile = async (req, res) => {
 
 export const getUser = async (req, res) => {
     try {
-        const user = await User.find();
+        // Find single user by ID if needed (though existing method finds all, preserving for legacy)
+        const user = await User.find(); 
         res.status(200).json({ user });
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 }
+
+export const getAllUsers = async (req, res) => {
+    try {
+        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        res.status(200).json({ users });
+    } catch (error) {
+        res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+}
+
+export const getAdminDashboardStats = async (req, res) => {
+    try {
+        const totalUsers = await User.countDocuments();
+        
+        const depositStats = await Transaction.aggregate([
+            { $match: { type: 'Deposit', status: 'Approved' } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        const totalDeposits = depositStats[0]?.total || 0;
+
+        const withdrawalStats = await Transaction.aggregate([
+            { $match: { type: 'Withdrawal', status: 'Approved' } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        const totalWithdrawals = withdrawalStats[0]?.total || 0;
+
+        const pendingWithdrawalsCount = await Transaction.countDocuments({ type: 'Withdrawal', status: 'Pending' });
+
+        const betStats = await Bet.aggregate([
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        const totalBets = betStats[0]?.total || 0;
+
+        const winningStats = await Transaction.aggregate([
+             { $match: { type: 'Winning', status: 'Approved' } },
+             { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        const totalWinnings = winningStats[0]?.total || 0;
+        
+        const adminProfitLoss = totalBets - totalWinnings;
+
+        res.status(200).json({
+            success: true,
+            stats: {
+                totalUsers,
+                totalDeposits,
+                totalWithdrawals,
+                totalBets,
+                totalWinnings,
+                adminProfitLoss,
+                pendingWithdrawalsCount,
+                totalBonuses: 0
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+    }
+}
+
+export const getUserPassbook = async (req, res) => {
+    try {
+        const userId = req.userId;
+        const transactions = await Transaction.find({ userId }).sort({ createdAt: -1 });
+        const bids = await Bet.find({ user_id: userId }).populate('market_id', 'name').sort({ createdAt: -1 });
+
+        let passbook = [];
+
+        const payouts = {
+            'Single': 9,
+            'Jodi': 90,
+            'Single Panna': 140,
+            'Double Panna': 280,
+            'Triple Panna': 600,
+            'Half Sangam': 1000,
+            'Full Sangam': 10000
+        };
+
+        // Format Transactions
+        transactions.forEach(t => {
+            const date = new Date(t.createdAt);
+            const timeStr = date.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const dateStr = date.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+            if (t.type === 'Deposit') {
+                passbook.push({
+                    id: `txn-${t._id}`,
+                    type: "CREDIT",
+                    amount: t.amount,
+                    date: dateStr,
+                    time: timeStr,
+                    rawDate: date.getTime(),
+                    status: t.status.toUpperCase(),
+                    description: `Deposit via ${t.method}`
+                });
+            } else if (t.type === 'Withdrawal') {
+                passbook.push({
+                    id: `txn-${t._id}`,
+                    type: "DEBIT",
+                    amount: t.amount,
+                    date: dateStr,
+                    time: timeStr,
+                    rawDate: date.getTime(),
+                    status: t.status.toUpperCase(),
+                    description: `Withdrawal via ${t.method}`
+                });
+
+                if (t.status === 'Rejected') {
+                    const rejectDate = new Date(t.updatedAt);
+                    passbook.push({
+                        id: `ref-${t._id}`,
+                        type: "CREDIT",
+                        amount: t.amount,
+                        date: rejectDate.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                        time: rejectDate.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
+                        rawDate: rejectDate.getTime(),
+                        status: "COMPLETED",
+                        description: `Refund: Withdrawal Rejected`
+                    });
+                }
+            }
+        });
+
+        // Format Bids
+        bids.forEach(b => {
+            const date = new Date(b.createdAt);
+            const timeStr = date.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const dateStr = date.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            
+            passbook.push({
+                id: `bid-${b._id}`,
+                type: "DEBIT",
+                amount: b.amount,
+                date: dateStr,
+                time: timeStr,
+                rawDate: date.getTime(),
+                status: "COMPLETED",
+                description: `Played Game - ${b.market_id?.name || 'Unknown'} (${b.game_type})`
+            });
+
+            if (b.status === 'Winner') {
+                const multiplier = payouts[b.game_type] || 1;
+                const winAmount = b.amount * multiplier;
+                const winDate = new Date(b.updatedAt);
+                passbook.push({
+                    id: `win-${b._id}`,
+                    type: "CREDIT",
+                    amount: winAmount,
+                    date: winDate.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: winDate.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
+                    rawDate: winDate.getTime(),
+                    status: "COMPLETED",
+                    description: `Won Game - ${b.market_id?.name || 'Unknown'} (${b.game_type})`
+                });
+            }
+        });
+
+        // Sort descending
+        passbook.sort((a, b) => b.rawDate - a.rawDate);
+
+        res.status(200).json({ success: true, passbook });
+    } catch (error) {
+        res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+}
+
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;

@@ -101,7 +101,7 @@ export const getAllPendingDeposits = async (req, res) => {
 
 export const allTransaction = async (req, res) => {
     try {
-        const transactions = await Transaction.find({ type: 'Deposit' }).populate('userId', 'name email').sort({ createdAt: -1 });
+        const transactions = await Transaction.find().populate('userId', 'name email').sort({ createdAt: -1 });
         res.status(200).json({ transactions });
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
@@ -194,6 +194,20 @@ export const getAllPendingWithdrawals = async (req, res) => {
       res.status(200).json(pendingWithdrawals);
     } catch (error) {
       console.error("Get Pending Withdrawals Error:", error);
+      res.status(500).json({ message: "Server error while fetching requests." });
+    }
+  };
+
+
+  export const getAllWithdrawals = async (req, res) => {
+    try {
+      const withdrawals = await Transaction.find({ type: 'Withdrawal' })
+        .populate('userId', 'name mobile')
+        .sort({ createdAt: -1 });
+  
+      res.status(200).json(withdrawals);
+    } catch (error) {
+      console.error("Get Withdrawals Error:", error);
       res.status(500).json({ message: "Server error while fetching requests." });
     }
   };

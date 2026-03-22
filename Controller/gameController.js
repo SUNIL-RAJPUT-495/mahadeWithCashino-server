@@ -152,45 +152,76 @@ export const declareResult = async (req, res) => {
             const sum = parseInt(panna[0]) + parseInt(panna[1]) + parseInt(panna[2]);
             return (sum % 10).toString();
         };
-        // 1. Calculate Digits and Jodi
-        const open_digit = calculateDigit(open_panna); // e.g., 456 -> 4+5+6=15 -> 5
-        const close_digit = calculateDigit(close_panna); // e.g., 779 -> 7+7+9=23 -> 3[cite: 1]
-        const jodi = `${open_digit}${close_digit}`; // e.g., 53[cite: 1]
 
-        // 2. Save Result to DB[cite: 1]
-        const newResult = new Result({
-            market_id,
-            open_panna,
-            open_digit,
-            close_panna,
-            close_digit,
-            jodi,
-            date: new Date(date)
-        });
-        await newResult.save();
+        const open_digit = calculateDigit(open_panna);
+        const close_digit = calculateDigit(close_panna);
 
-        // 3. Payout Multipliers (10 ki bet par kitna milega / 10)[cite: 1]
-        const payouts = {
-            'Single': 9,          // 10 -> 90[cite: 1]
-            'Jodi': 90,           // 10 -> 900[cite: 1]
-            'Single Panna': 140,  // 10 -> 1400[cite: 1]
-            'Double Panna': 280,  // 10 -> 2800[cite: 1]
-            'Triple Panna': 600,  // 10 -> 6000[cite: 1]
-            // Sangam payouts aap apne hisaab se add kar sakte hain (usually 10 -> 10000 for Full)
-            'Half Sangam': 1000,
-            'Full Sangam': 10000
-        };
-
-        // 4. Find all pending bets for this date/market
+        // Date bounds
         const startOfDay = new Date(date);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
 
-        const pendingBets = await Bet.find({
+        // Fetch or create Result
+        let resultDoc = await Result.findOne({
+            market_id,
+            date: { $gte: startOfDay, $lte: endOfDay }
+        });
+
+        if (!resultDoc) {
+            resultDoc = new Result({
+                market_id,
+                date: new Date(date),
+                open_panna: open_panna || '',
+                open_digit: open_digit || '',
+                close_panna: close_panna || '',
+                close_digit: close_digit || '',
+                jodi: ''
+            });
+        } else {
+            if (open_panna) {
+                resultDoc.open_panna = open_panna;
+                resultDoc.open_digit = open_digit;
+            }
+            if (close_panna) {
+                resultDoc.close_panna = close_panna;
+                resultDoc.close_digit = close_digit;
+            }
+        }
+
+        // recalculate Jodi if both exist
+        if (resultDoc.open_digit && resultDoc.close_digit) {
+            resultDoc.jodi = `${resultDoc.open_digit}${resultDoc.close_digit}`;
+        }
+        await resultDoc.save();
+
+        // Update the Market's live result display
+        const marketDoc = await Market.findById(market_id);
+        if (marketDoc) {
+            if (resultDoc.open_panna) marketDoc.open_pana = resultDoc.open_panna;
+            if (resultDoc.close_panna) marketDoc.close_pana = resultDoc.close_panna;
+            
+            const liveOD = resultDoc.open_digit || '*';
+            const liveCD = resultDoc.close_digit || '*';
+            marketDoc.jodi_result = `${liveOD}${liveCD}`;
+
+            await marketDoc.save();
+        }
+
+        const payouts = {
+            'Single': 9,
+            'Jodi': 90,
+            'Single Panna': 140,
+            'Double Panna': 280,
+            'Triple Panna': 600,
+            'Half Sangam': 1000,
+            'Full Sangam': 10000
+        };
+
+        const pendingBets = await Bid.find({
             status: 'Pending',
+            market_id: market_id,
             createdAt: { $gte: startOfDay, $lte: endOfDay }
-            // market_id: market_id // Agar multiple markets filter karne hain
         });
 
         let winnersCount = 0;
@@ -198,63 +229,94 @@ export const declareResult = async (req, res) => {
 
         for (let bet of pendingBets) {
             let isWinner = false;
+            let shouldProcess = false;
 
             switch (bet.game_type) {
                 case 'Single':
-                    if (bet.session === 'Open' && bet.bet_number === open_digit) isWinner = true;
-                    if (bet.session === 'Close' && bet.bet_number === close_digit) isWinner = true;
+                    if (bet.session === 'Open' && resultDoc.open_digit) {
+                        shouldProcess = true;
+                        if (bet.bet_number === resultDoc.open_digit) isWinner = true;
+                    }
+                    if (bet.session === 'Close' && resultDoc.close_digit) {
+                        shouldProcess = true;
+                        if (bet.bet_number === resultDoc.close_digit) isWinner = true;
+                    }
                     break;
 
                 case 'Jodi':
-                    if (bet.bet_number === jodi) isWinner = true;
+                    if (resultDoc.jodi) {
+                        shouldProcess = true;
+                        if (bet.bet_number === resultDoc.jodi) isWinner = true;
+                    }
                     break;
 
                 case 'Single Panna':
                 case 'Double Panna':
                 case 'Triple Panna':
-                    // Match panna depending on session[cite: 1]
-                    if (bet.session === 'Open' && bet.bet_number === open_panna) isWinner = true;
-                    if (bet.session === 'Close' && bet.bet_number === close_panna) isWinner = true;
+                    if (bet.session === 'Open' && resultDoc.open_panna) {
+                        shouldProcess = true;
+                        if (bet.bet_number === resultDoc.open_panna) isWinner = true;
+                    }
+                    if (bet.session === 'Close' && resultDoc.close_panna) {
+                        shouldProcess = true;
+                        if (bet.bet_number === resultDoc.close_panna) isWinner = true;
+                    }
                     break;
 
                 case 'Half Sangam':
-                    if (bet.bet_number === `${open_panna}-${close_digit}`) isWinner = true;
-                    if (bet.bet_number === `${close_panna}-${open_digit}`) isWinner = true;
+                    if (resultDoc.open_panna && resultDoc.close_digit) {
+                        shouldProcess = true;
+                        if (bet.bet_number === `${resultDoc.open_panna}-${resultDoc.close_digit}`) isWinner = true;
+                    }
+                    if (resultDoc.close_panna && resultDoc.open_digit) {
+                        shouldProcess = true;
+                        if (bet.bet_number === `${resultDoc.close_panna}-${resultDoc.open_digit}`) isWinner = true;
+                    }
                     break;
 
                 case 'Full Sangam':
-                    if (bet.bet_number === `${open_panna}-${close_panna}`) isWinner = true;
+                    if (resultDoc.open_panna && resultDoc.close_panna) {
+                        shouldProcess = true;
+                        if (bet.bet_number === `${resultDoc.open_panna}-${resultDoc.close_panna}`) isWinner = true;
+                    }
                     break;
 
                 case 'Odd Even':
-                    const targetDigit = bet.session === 'Open' ? parseInt(open_digit) : parseInt(close_digit);
-                    const isTargetEven = targetDigit % 2 === 0;
-                    if (bet.bet_number === 'Even' && isTargetEven) isWinner = true;
-                    if (bet.bet_number === 'Odd' && !isTargetEven) isWinner = true;
+                    if (bet.session === 'Open' && resultDoc.open_digit) {
+                        shouldProcess = true;
+                        const isTargetEven = parseInt(resultDoc.open_digit) % 2 === 0;
+                        if (bet.bet_number === 'Even' && isTargetEven) isWinner = true;
+                        if (bet.bet_number === 'Odd' && !isTargetEven) isWinner = true;
+                    }
+                    if (bet.session === 'Close' && resultDoc.close_digit) {
+                        shouldProcess = true;
+                        const isTargetEven = parseInt(resultDoc.close_digit) % 2 === 0;
+                        if (bet.bet_number === 'Even' && isTargetEven) isWinner = true;
+                        if (bet.bet_number === 'Odd' && !isTargetEven) isWinner = true;
+                    }
                     break;
             }
 
-            // 6. Process Winner/Loser
-            if (isWinner) {
-                bet.status = 'Winner';
-                const multiplier = payouts[bet.game_type] || 1;
-                const winAmount = bet.amount * multiplier;
+            if (shouldProcess) {
+                if (isWinner) {
+                    bet.status = 'Winner';
+                    const multiplier = payouts[bet.game_type] || 1;
+                    const winAmount = bet.amount * multiplier;
 
+                    await User.findByIdAndUpdate(bet.user_id, { $inc: { walletBalance: winAmount } });
 
-                await User.findByIdAndUpdate(bet.user_id, { $inc: { walletBalance: winAmount } });
-
-                winnersCount++;
-                totalPayout += winAmount;
-            } else {
-                bet.status = 'Loser';
+                    winnersCount++;
+                    totalPayout += winAmount;
+                } else {
+                    bet.status = 'Loser';
+                }
+                await bet.save();
             }
-
-            await bet.save();
         }
 
         res.status(200).json({
-            message: "Result generated and winnings distributed!",
-            result: { open_panna, open_digit, close_panna, close_digit, jodi },
+            message: "Result processed and payouts calculated!",
+            result: resultDoc,
             stats: { totalBidsProcessed: pendingBets.length, winnersCount, totalPayout }
         });
 
