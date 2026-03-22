@@ -33,5 +33,15 @@ app.use("/api/user", userRouter);
 app.use("/api/game", gameRouter);
 app.use("/api/transaction", transactionRouter);
 
-// Vercel ke liye humein app.listen() hata kar app ko export karna hota hai
+// 👇 LOCALHOST KE LIYE YEH ADD KARNA ZARURI HAI 👇
+const PORT = process.env.PORT || 5000;
+
+// Agar system Vercel (production) par nahi hai, tabhi listen karega
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running locally on http://localhost:${PORT}`);
+  });
+}
+
+// Vercel Serverless functions ke liye export karna zaruri hai
 export default app;

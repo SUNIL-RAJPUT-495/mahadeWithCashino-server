@@ -32,7 +32,7 @@ export const createUser = async (req, res) => {
             mobile, 
             referralCode: refCode || '', 
             password: hashedPassword, 
-            role: role || 'USER' 
+            role: role || 'user' 
         });
 
         const userResponse = user.toObject();
