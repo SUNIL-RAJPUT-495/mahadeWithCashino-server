@@ -2,6 +2,7 @@ import User from "../models/User.js";
 import Result from "../models/Result.js";
 import Bid from "../models/Bid.js";
 import Market from "../models/Market.js";
+import Notification from "../models/Notification.js";
 
 
 
@@ -107,7 +108,7 @@ export const getAllBids = async (req, res) => {
     try {
         // .populate se hum User ka naam aur Game ki details khinch rahe hain
         const bids = await Bid.find()
-            .populate('user_id', 'name mobile') 
+            .populate('user_id', 'name mobile')
             .populate('market_id', 'name')
             .sort({ createdAt: -1 }); // Newest first
 
@@ -200,13 +201,28 @@ export const declareResult = async (req, res) => {
         if (marketDoc) {
             if (resultDoc.open_panna) marketDoc.open_pana = resultDoc.open_panna;
             if (resultDoc.close_panna) marketDoc.close_pana = resultDoc.close_panna;
-            
+
             const liveOD = resultDoc.open_digit || '*';
             const liveCD = resultDoc.close_digit || '*';
             marketDoc.jodi_result = `${liveOD}${liveCD}`;
+            if (resultDoc.open_panna && resultDoc.close_panna) {
+                marketDoc.status = 'Closed'; 
+            }
 
             await marketDoc.save();
         }
+        try {
+            const autoNotification = new Notification({
+                title: `🎉 ${marketDoc.name} Result Declared!`,
+                message: `Today's result for ${marketDoc.name} has been updated: ${resultDoc.open_panna || '***'} - ${resultDoc.jodi || '**'} - ${resultDoc.close_panna || '***'}. Check your wallet now!`,
+                type: 'Result'
+            });
+            await autoNotification.save();
+            console.log(`Notification sent for ${marketDoc.name}`);
+        } catch (notifErr) {
+            console.error("Failed to generate automatic notification:", notifErr);
+        }
+        
 
         const payouts = {
             'Single': 9,
