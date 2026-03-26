@@ -1,14 +1,13 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import connectDB from './Config/Db.js';
 import gameRouter from './routes/gameRoutes.js';
 import morgan from 'morgan';
 import userRouter from './routes/userRouter.js';
 import transactionRouter from './routes/transactionRoutes.js';
 import notificationRouter from './routes/notificationRoutes.js';
-
-dotenv.config();
+import chatRouter from './routes/chat.router.js';
 
 const app = express();
 
@@ -34,6 +33,7 @@ app.use("/api/user", userRouter);
 app.use("/api/game", gameRouter);
 app.use("/api/transaction", transactionRouter);
 app.use("/api/notification", notificationRouter);
+app.use("/api/chat", chatRouter);
 
 const PORT = process.env.PORT || 5000;
 
