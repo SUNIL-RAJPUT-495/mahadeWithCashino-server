@@ -2,12 +2,13 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import connectDB from './Config/Db.js';
-import gameRouter from './routes/gameRoutes.js';
 import morgan from 'morgan';
 import userRouter from './routes/userRouter.js';
 import transactionRouter from './routes/transactionRoutes.js';
 import notificationRouter from './routes/notificationRoutes.js';
 import chatRouter from './routes/chat.router.js';
+import bidRouter from './routes/bidRoutes.js';
+import marketRouter from './routes/marketRoutes.js';
 
 const app = express();
 
@@ -30,7 +31,8 @@ app.get('/', (req, res) => {
 
 
 app.use("/api/user", userRouter);
-app.use("/api/game", gameRouter);
+app.use("/api/bid", bidRouter);
+app.use("/api/market", marketRouter);
 app.use("/api/transaction", transactionRouter);
 app.use("/api/notification", notificationRouter);
 app.use("/api/chat", chatRouter);
