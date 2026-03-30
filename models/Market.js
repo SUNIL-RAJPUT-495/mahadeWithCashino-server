@@ -11,21 +11,20 @@ const marketSchema = new mongoose.Schema({
   // Bid Timings
   open_time: { 
     type: String, 
-    required: true // Yeh "Open Bid Last Time" hai
+    required: true 
   }, 
   close_time: { 
     type: String, 
-    required: true // Yeh "Close Bid Last Time" hai
+    required: true 
   }, 
   
-  // Result Timings (✨ Naye Fields Screenshot ke hisaab se)
   open_result_time: {
     type: String,
-    default: '' // Example: "09:35 AM"
+    default: '' 
   },
   close_result_time: {
     type: String,
-    default: '' // Example: "10:35 AM"
+    default: '' 
   },
 
   // Results

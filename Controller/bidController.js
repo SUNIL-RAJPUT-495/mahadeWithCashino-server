@@ -1,13 +1,15 @@
 import User from "../models/User.js";
 import Market from "../models/Market.js";
 import Bid from "../models/Bid.js";
+import { parseTimeToMinutes, getCurrentISTMinutes, getCurrentISTTimeString } from "../utils/timeUtils.js";
 
 const normalizeGameType = (type) => {
     if (!type) return type;
-    if (type === 'SingleBulk' || type === 'SinglePannaBulk' || type === 'DoublePannaBulk') {
+    if (type === 'SingleBulk' || type === 'SinglePannaBulk' || type === 'DoublePannaBulk' || type === 'JodiBulk') {
         if (type === 'SingleBulk') return 'Single';
         if (type === 'SinglePannaBulk') return 'Single Panna';
         if (type === 'DoublePannaBulk') return 'Double Panna';
+        if (type === 'JodiBulk') return 'Jodi';
     }
     return type;
 };
@@ -45,7 +47,7 @@ export const placeBid = async (req, res) => {
         const user_id = req.userId;
         const { market_id, game_type, session, bet_number, amount, total_amount, bids } = req.body;
 
-        // 1. User Check First
+
         const user = await User.findById(user_id);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
@@ -74,40 +76,38 @@ export const placeBid = async (req, res) => {
             return res.status(400).json({ message: 'Market is closed for betting.' });
         }
 
-        const getISTTime = () => {
-            const date = new Date();
-            const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-            const istDate = new Date(utc + (330 * 60000));
-            const hours = String(istDate.getHours()).padStart(2, '0');
-            const minutes = String(istDate.getMinutes()).padStart(2, '0');
-            return `${hours}:${minutes}`;
-        };
-        const currentTime = getISTTime();
+        const currentMBM = getCurrentISTMinutes();
 
-        const isPastSessionTime = (currTime, sessTime, sessType, openTm, closeTm) => {
-            const crossesMidnight = openTm > closeTm;
+        const isPastSessionTime = (currMBM, sessTimeStr, sessType, openTmStr, closeTmStr) => {
+            const sessMBM = parseTimeToMinutes(sessTimeStr);
+            const openMBM = parseTimeToMinutes(openTmStr);
+            const closeMBM = parseTimeToMinutes(closeTmStr);
+            
+            const crossesMidnight = openMBM > closeMBM;
             if (crossesMidnight) {
-                const isAM = currTime >= "00:00" && currTime < "12:00";
+                const isAM = currMBM >= 0 && currMBM < 720; // 00:00 to 12:00
                 if (sessType === 'Open' || sessType === 'Full') {
                     if (isAM) return true;
-                    return currTime > sessTime;
+                    return currMBM > sessMBM;
                 } else if (sessType === 'Close') {
-                    if (isAM) return currTime > sessTime;
+                    if (isAM) return currMBM > sessMBM;
                     return false;
                 }
             } 
-            return currTime > sessTime;
+            return currMBM > sessMBM;
         };
 
         for (let b of incomingBids) {
-            let sessionTime = (b.session === 'Open' || b.session === 'Full') ? market.open_time : market.close_time;
+           let sessionTimeStr = market.close_time;
             
-            if (sessionTime && isPastSessionTime(currentTime, sessionTime, b.session, market.open_time, market.close_time)) {
-                return res.status(400).json({ message: `Betting is closed for ${b.session === 'Full' ? 'Jodi' : b.session} session. Time limit was ${sessionTime}.` });
+            if (sessionTimeStr && isPastSessionTime(currentMBM, sessionTimeStr, b.session, market.open_time, market.close_time)) {
+                const serverTime = getCurrentISTTimeString();
+                return res.status(400).json({ 
+                    message: `Betting is closed for ${b.session === 'Full' ? 'Jodi' : b.session} session. Time limit was ${sessionTimeStr}. Server time is ${serverTime}.` 
+                });
             }
         }
 
-        // 3. Process & Expand Combinations
         let finalBidsToSave = [];
         let backendCalculatedTotalAmount = 0;
 
@@ -121,32 +121,32 @@ export const placeBid = async (req, res) => {
             }
 
             const normalizedType = normalizeGameType(game_type);
+            const finalSession = normalizedType === 'Jodi' ? 'Full' : bid.session;
 
             if (game_type === 'SPMotor') {
                 const panas = generateSPMotor(bid.bet_number);
                 for (let pana of panas) {
-                    finalBidsToSave.push({ user_id, market_id, game_type: 'Single Panna', session: bid.session, bet_number: pana, amount: bidAmt });
+                    finalBidsToSave.push({ user_id, market_id, game_type: 'Single Panna', session: finalSession, bet_number: pana, amount: bidAmt });
                     backendCalculatedTotalAmount += bidAmt;
                 }
             } else if (game_type === 'DPMotor') {
                 const panas = generateDPMotor(bid.bet_number);
                 for (let pana of panas) {
-                    finalBidsToSave.push({ user_id, market_id, game_type: 'Double Panna', session: bid.session, bet_number: pana, amount: bidAmt });
+                    finalBidsToSave.push({ user_id, market_id, game_type: 'Double Panna', session: finalSession, bet_number: pana, amount: bidAmt });
                     backendCalculatedTotalAmount += bidAmt;
                 }
             } else if (game_type === 'OddEven') {
                 const digits = bid.bet_number === 'Odd' ? ['1', '3', '5', '7', '9'] : ['0', '2', '4', '6', '8'];
                 for (let digit of digits) {
-                    finalBidsToSave.push({ user_id, market_id, game_type: 'Single', session: bid.session, bet_number: digit, amount: bidAmt });
+                    finalBidsToSave.push({ user_id, market_id, game_type: 'Single', session: finalSession, bet_number: digit, amount: bidAmt });
                     backendCalculatedTotalAmount += bidAmt;
                 }
             } else {
-                finalBidsToSave.push({ user_id, market_id, game_type: normalizedType, session: bid.session, bet_number: String(bid.bet_number), amount: bidAmt });
+                finalBidsToSave.push({ user_id, market_id, game_type: normalizedType, session: finalSession, bet_number: String(bid.bet_number), amount: bidAmt });
                 backendCalculatedTotalAmount += bidAmt;
             }
         }
 
-        // 4. Validate Balance & Execute
         if (finalBidsToSave.length === 0) return res.status(400).json({ message: 'No valid bets to place.' });
         if (user.walletBalance < backendCalculatedTotalAmount) return res.status(400).json({ message: 'Insufficient wallet balance.' });
 
@@ -176,11 +176,10 @@ export const placeBid = async (req, res) => {
 
 export const getAllBids = async (req, res) => {
     try {
-        // .populate se hum User ka naam aur Game ki details khinch rahe hain
         const bids = await Bid.find()
             .populate('user_id', 'name mobile')
             .populate('market_id', 'name')
-            .sort({ createdAt: -1 }); // Newest first
+            .sort({ createdAt: -1 }); 
 
         res.status(200).json({ success: true, bids });
     } catch (error) {
@@ -207,6 +206,16 @@ export const getUserBids = async (req, res) => {
             totalBids: bids.length,
             bids: bids
         });
+    } catch (error) {
+        res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+}
+
+export const satelBids = async (req, res) => {
+    try {
+        const { market_id, date, open_panna, close_panna } = req.body;
+        const bids = await Bid.find({ market_id, date });
+        
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
