@@ -10,13 +10,13 @@ export const addGame = async (req, res) => {
         const name = req.body?.name ?? req.body?.Name;
         const open_time = req.body?.open_time ?? req.body?.OpeningTime;
         const close_time = req.body?.close_time ?? req.body?.ClosingTime;
-        
+
         const open_result_time = req.body?.open_result_time;
         const close_result_time = req.body?.close_result_time;
 
         if (!name || !open_time || !close_time || !open_result_time || !close_result_time) {
-            return res.status(400).json({ 
-                message: 'All fields (Name and 4 Timings) are required' 
+            return res.status(400).json({
+                message: 'All fields (Name and 4 Timings) are required'
             });
         }
 
@@ -25,12 +25,12 @@ export const addGame = async (req, res) => {
             return res.status(400).json({ message: 'Game already exists' });
         }
 
-        const game = await Market.create({ 
-            name, 
-            open_time, 
+        const game = await Market.create({
+            name,
+            open_time,
             close_time,
-            open_result_time,    
-            close_result_time    
+            open_result_time,
+            close_result_time
         });
 
         res.status(201).json({ message: 'Game added successfully', game });
@@ -41,11 +41,11 @@ export const addGame = async (req, res) => {
 
 export const getAllGames = async (req, res) => {
     try {
-        const games = await Market.find().lean(); 
+        const games = await Market.find().lean();
 
         const currentMBM = getCurrentISTMinutes();
         const gamesWithStatus = games.map((game) => {
-            let currentStatus = 'Active'; 
+            let currentStatus = 'Active';
 
             if (game.open_time && game.close_time) {
                 const openMBM = parseTimeToMinutes(game.open_time);
@@ -63,7 +63,7 @@ export const getAllGames = async (req, res) => {
                 } else {
                     if (currentMBM >= closeMBM) {
                         currentStatus = 'Closed';
-                    } 
+                    }
                     else if (currentMBM < openMBM) {
                         currentStatus = 'Upcoming';
                     }
@@ -73,77 +73,111 @@ export const getAllGames = async (req, res) => {
             return {
                 ...game,
                 is_closed: currentStatus === 'Closed',
-                status: currentStatus 
+                status: currentStatus
             };
         });
 
-        res.status(200).json({ data: gamesWithStatus }); 
-        
+        res.status(200).json({ data: gamesWithStatus });
+
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 }
 
+
 export const declareResult = async (req, res) => {
     try {
         const { market_id, date, open_panna, close_panna } = req.body;
 
+        // Helper: Panna se Ank nikalne ka logic
         const calculateDigit = (panna) => {
             if (!panna || panna.length !== 3) return '';
             const sum = parseInt(panna[0]) + parseInt(panna[1]) + parseInt(panna[2]);
             return (sum % 10).toString();
         };
 
-        const open_digit = calculateDigit(open_panna);
-        const close_digit = calculateDigit(close_panna);
+        // Digits calculate karo (agar panna empty hoga toh '' aayega)
+        const open_digit = open_panna ? calculateDigit(open_panna) : '';
+        const close_digit = close_panna ? calculateDigit(close_panna) : '';
 
-        const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+        // Date Setup (Aaj ki ya selected date ki limit)
+        const targetDate = date ? new Date(date) : new Date();
+        const startOfDay = new Date(targetDate); startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(targetDate); endOfDay.setHours(23, 59, 59, 999);
 
-        let resultDoc = await Result.findOne({ market_id, date: { $gte: startOfDay, $lte: endOfDay } });
-
-        if(resultDoc){
-            return res.status(400).json({ message: 'Result already declared' });
-        }
-
+        // 1. Market aur existing result dhundo
         const marketDoc = await Market.findById(market_id);
         if (!marketDoc) {
             return res.status(404).json({ message: 'Market not found' });
         }
 
-        const saveResult = await Result.create({
-            market_id,
-            date,
-            open_panna,
-            close_panna,
-            open_digit,
-            close_digit,
-            jodi: `${open_digit}${close_digit}`
-        });
+        let resultDoc = await Result.findOne({ market_id, date: { $gte: startOfDay, $lte: endOfDay } });
 
-        marketDoc.open_pana = open_panna || '***';
-        marketDoc.close_pana = close_panna || '***';
+        // Flags variables to track what we need to settle
+        let runOpenSettlement = false;
+        let runCloseSettlement = false;
+
+        // 2. CREATE OR UPDATE RESULT DOCUMENT
+        if (!resultDoc) {
+            // Naya Din, Naya Result (Create)
+            resultDoc = new Result({
+                market_id,
+                date: targetDate,
+                open_panna: open_panna || '',
+                open_digit: open_digit,
+                close_panna: close_panna || '',
+                close_digit: close_digit,
+                jodi: (open_digit && close_digit) ? `${open_digit}${close_digit}` : ''
+            });
+
+            if (open_panna) runOpenSettlement = true;
+            if (close_panna) runCloseSettlement = true;
+
+        } else {
+            // Result exist karta hai, hume update karna hai (Jaise Close result baad mein aaya)
+            if (open_panna && !resultDoc.open_panna) {
+                resultDoc.open_panna = open_panna;
+                resultDoc.open_digit = open_digit;
+                runOpenSettlement = true;
+            }
+            if (close_panna && !resultDoc.close_panna) {
+                resultDoc.close_panna = close_panna;
+                resultDoc.close_digit = close_digit;
+                runCloseSettlement = true;
+            }
+            
+            if (resultDoc.open_digit && resultDoc.close_digit) {
+                resultDoc.jodi = `${resultDoc.open_digit}${resultDoc.close_digit}`;
+            }
+        }
+
+        await resultDoc.save();
+
+        marketDoc.open_pana = resultDoc.open_panna || '***';
+        marketDoc.close_pana = resultDoc.close_panna || '***';
         
-        const displayOpenDigit = open_digit !== '' ? open_digit : '*';
-        const displayCloseDigit = close_digit !== '' ? close_digit : '*';
-        marketDoc.jodi_result = `${displayOpenDigit}${displayCloseDigit}`;
+        const displayOpen = resultDoc.open_digit || '*';
+        const displayClose = resultDoc.close_digit || '*';
+        marketDoc.jodi_result = `${displayOpen}${displayClose}`;
         
         await marketDoc.save();
 
-
-
-        runSettlementLogic(market_id, saveResult, 'Open');
-        runSettlementLogic(market_id, saveResult, 'Close');
+        if (runOpenSettlement) runSettlementLogic(market_id, resultDoc, 'Open');
+        if (runCloseSettlement) runSettlementLogic(market_id, resultDoc, 'Close');
         
         try {
-            await Notification.create({
-                title: `🎉 ${marketDoc.name} Result Declared!`,
-                message: `Today's result: ${saveResult.open_panna || '***'}-${saveResult.jodi || '**'}-${saveResult.close_panna || '***'}. Check your wallet!`,
-                type: 'Result'
-            });
-        } catch (e) { console.error(e); }
+            let notifMessage = `Result Update: ${marketDoc.open_pana}-${marketDoc.jodi_result}-${marketDoc.close_pana}`;
+            // await Notification.create({ ... });
+        } catch (e) { 
+            console.error("Notification Error:", e); 
+        }
 
-        res.status(201).json({ message: 'Result declared and settlement started', result: saveResult });
+        res.status(200).json({ 
+            success: true,
+            message: 'Result declared and settlement triggered accordingly.', 
+            result: resultDoc,
+            settlementsTriggered: { open: runOpenSettlement, close: runCloseSettlement }
+        });
 
     } catch (error) {
         console.error("Result Logic Error:", error);

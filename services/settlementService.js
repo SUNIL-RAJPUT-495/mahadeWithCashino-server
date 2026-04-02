@@ -3,7 +3,8 @@ import Bid from '../models/Bid.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 
-// --- HELPER FUNCTIONS ---
+
+
 const isSinglePanna = (panna) => panna && new Set(panna.split('')).size === 3;
 const isDoublePanna = (panna) => panna && new Set(panna.split('')).size === 2;
 const isTriplePanna = (panna) => panna && new Set(panna.split('')).size === 1;
@@ -29,31 +30,103 @@ const isMotorWin = (motorDigits, resultPanna) => {
 };
 
 const PAYOUT_RATES = {
-    'Single': 10,
-    'SingleBulk': 10,
-    'Jodi': 100,
-    'JodiBulk': 100,
-    'Single Panna': 160,
-    'SinglePannaBulk': 160,
-    'Double Panna': 320,
-    'DoublePannaBulk': 320,
+    'Single': 10, 'SingleBulk': 10,
+    'Jodi': 100, 'JodiBulk': 100,
+    'Single Panna': 160, 'SinglePannaBulk': 160,
+    'Double Panna': 320, 'DoublePannaBulk': 320,
     'Triple Panna': 700,
     'FullSangam': 10000,
-    'HalfSangamA': 1000,
-    'HalfSangamB': 1000,
-    'SP': 10, 
-    'DP': 100, 
-    'TP': 700,
+    'HalfSangamA': 1000, 'HalfSangamB': 1000,
+    'SP': 10, 'DP': 100, 'TP': 700,
     'TwoDigitPana': 100,
-    'SPMotor': 160,
-    'DPMotor': 320,
+    'SPMotor': 160, 'DPMotor': 320,
     'RedJodi': 100,
     'OddEven': 2,
-    'SPCOMMON': 10,
-    'DPCOMMON': 100,
+    'SPCOMMON': 10, 'DPCOMMON': 100,
 };
 
-// --- SETTLEMENT LOGIC ---
+// ==========================================
+// 2. INDIVIDUAL GAME CHECKERS 
+// ==========================================
+
+const checkSingleWin = (betNum, resultDigit) => betNum === resultDigit;
+
+const checkJodiWin = (betNum, _, __, resultDoc) => betNum === resultDoc.jodi;
+
+const checkSinglePannaWin = (betNum, _, resultPanna) => isSinglePanna(resultPanna) && betNum === resultPanna;
+
+const checkDoublePannaWin = (betNum, _, resultPanna) => isDoublePanna(resultPanna) && betNum === resultPanna;
+
+const checkTriplePannaWin = (betNum, _, resultPanna) => isTriplePanna(resultPanna) && betNum === resultPanna;
+
+const checkSPMotorWin = (betNum, _, resultPanna) => isSinglePanna(resultPanna) && isMotorWin(betNum, resultPanna);
+
+const checkDPMotorWin = (betNum, _, resultPanna) => isDoublePanna(resultPanna) && isMotorWin(betNum, resultPanna);
+
+const checkOddEvenWin = (betNum, resultDigit) => {
+    let digitNum = parseInt(resultDigit);
+    if (!isNaN(digitNum)) {
+        let isEven = digitNum % 2 === 0;
+        return (betNum.toLowerCase() === 'even' && isEven) || (betNum.toLowerCase() === 'odd' && !isEven);
+    }
+    return false;
+};
+
+const checkRedJodiWin = (betNum, _, __, resultDoc) => {
+    const redList = ['00', '11', '22', '33', '44', '55', '66', '77', '88', '99']; 
+    return redList.includes(resultDoc.jodi) && betNum === resultDoc.jodi;
+};
+
+const checkTwoDigitPanaWin = (betNum, _, resultPanna) => {
+    if (resultPanna && betNum.length === 2) {
+        let pannaChars = resultPanna.split('');
+        let betChars = betNum.split('');
+        let matchCount = 0;
+        for (let char of betChars) {
+            let idx = pannaChars.indexOf(char);
+            if (idx !== -1) {
+                matchCount++;
+                pannaChars.splice(idx, 1); 
+            }
+        }
+        return matchCount === 2;
+    }
+    return false;
+};
+
+const checkHalfSangamAWin = (betNum, _, __, resultDoc) => betNum === `${resultDoc.open_panna}-${resultDoc.close_digit}`;
+const checkHalfSangamBWin = (betNum, _, __, resultDoc) => betNum === `${resultDoc.open_digit}-${resultDoc.close_panna}`;
+const checkFullSangamWin = (betNum, _, __, resultDoc) => betNum === `${resultDoc.open_panna}-${resultDoc.close_panna}`;
+const checkCyclePanaWin = (betNum, _, resultPanna) => isCyclePanaWin(betNum, resultPanna);
+const checkFamilyPanelWin = (betNum, _, resultPanna) => isFamilyPanelWin(betNum, resultPanna);
+
+
+// ==========================================
+// 3. THE WIN ENGINE (Router)
+// Yahan game_type connect hota hai sahi function se
+// ==========================================
+const GameWinEngine = {
+    'Single': checkSingleWin, 'SingleBulk': checkSingleWin,
+    'Jodi': checkJodiWin, 'JodiBulk': checkJodiWin,
+    'Single Panna': checkSinglePannaWin, 'SinglePannaBulk': checkSinglePannaWin, 'SP': checkSinglePannaWin, 'SPCOMMON': checkSinglePannaWin,
+    'Double Panna': checkDoublePannaWin, 'DoublePannaBulk': checkDoublePannaWin, 'DP': checkDoublePannaWin, 'DPCOMMON': checkDoublePannaWin,
+    'Triple Panna': checkTriplePannaWin, 'TP': checkTriplePannaWin,
+    'SPMotor': checkSPMotorWin,
+    'DPMotor': checkDPMotorWin,
+    'OddEven': checkOddEvenWin,
+    'RedJodi': checkRedJodiWin,
+    'TwoDigitPana': checkTwoDigitPanaWin,
+    'HalfSangamA': checkHalfSangamAWin,
+    'HalfSangamB': checkHalfSangamBWin,
+    'FullSangam': checkFullSangamWin,
+    'Cycle Pana': checkCyclePanaWin,
+    'Family Panel': checkFamilyPanelWin
+};
+
+
+// ==========================================
+// 4. MAIN SETTLEMENT LOGIC (Ab ekdum clean ho gaya hai)
+// ==========================================
 export const runSettlementLogic = async (marketId, resultDoc, sessionType) => {
     try {
         console.log(`[SETTLEMENT] Started for Market: ${marketId} | Session: ${sessionType}`);
@@ -73,110 +146,25 @@ export const runSettlementLogic = async (marketId, resultDoc, sessionType) => {
         let processedCount = 0;
 
         for await (const bid of bidCursor) {
+            // 1. Session Check
             if (sessionType === 'Open' && bid.session !== 'Open') continue;
             if (sessionType === 'Close' && !['Close', 'Full'].includes(bid.session)) continue;
 
-            let isWinner = false;
+            // 2. Fetch required target values based on session
             let resultPannaToMatch = bid.session === 'Open' ? resultDoc.open_panna : resultDoc.close_panna;
             let resultDigitToMatch = bid.session === 'Open' ? resultDoc.open_digit : resultDoc.close_digit;
 
-            switch (bid.game_type) {
-                case 'Single':
-                case 'SingleBulk':
-                    if (bid.bet_number === resultDigitToMatch) isWinner = true;
-                    break;
+            let isWinner = false;
 
-                // 2. Jodi
-                case 'Jodi':
-                case 'JodiBulk':
-                    if (bid.bet_number === resultDoc.jodi) isWinner = true;
-                    break;
-
-                // 3. Single Panna & its variants
-                case 'Single Panna':
-                case 'SinglePannaBulk':
-                case 'SP':
-                case 'SPCOMMON':
-                    if (isSinglePanna(resultPannaToMatch) && bid.bet_number === resultPannaToMatch) isWinner = true;
-                    break;
-
-                case 'Double Panna':
-                case 'DoublePannaBulk':
-                case 'DP':
-                case 'DPCOMMON':
-                    if (isDoublePanna(resultPannaToMatch) && bid.bet_number === resultPannaToMatch) isWinner = true;
-                    break;
-
-                case 'Triple Panna':
-                case 'TP':
-                    if (isTriplePanna(resultPannaToMatch) && bid.bet_number === resultPannaToMatch) isWinner = true;
-                    break;
-
-                case 'SPMotor':
-                    if (isSinglePanna(resultPannaToMatch) && isMotorWin(bid.bet_number, resultPannaToMatch)) isWinner = true;
-                    break;
-
-                case 'DPMotor':
-                    if (isDoublePanna(resultPannaToMatch) && isMotorWin(bid.bet_number, resultPannaToMatch)) isWinner = true;
-                    break;
-
-                case 'OddEven': 
-                    let digitNum = parseInt(resultDigitToMatch);
-                    if (!isNaN(digitNum)) {
-                        let isEven = digitNum % 2 === 0;
-                        if ((bid.bet_number.toLowerCase() === 'even' && isEven) ||
-                            (bid.bet_number.toLowerCase() === 'odd' && !isEven)) {
-                            isWinner = true;
-                        }
-                    }
-                    break;
-
-                case 'RedJodi': 
-                    const redList = ['00', '11', '22', '33', '44', '55', '66', '77', '88', '99']; 
-                    if (redList.includes(resultDoc.jodi) && bid.bet_number === resultDoc.jodi) isWinner = true;
-                    break;
-
-                case 'TwoDigitPana':
-                    if (resultPannaToMatch && bid.bet_number.length === 2) {
-                        let pannaChars = resultPannaToMatch.split('');
-                        let betChars = bid.bet_number.split('');
-                        let matchCount = 0;
-                        
-                        for (let char of betChars) {
-                            let idx = pannaChars.indexOf(char);
-                            if (idx !== -1) {
-                                matchCount++;
-                                pannaChars.splice(idx, 1); 
-                            }
-                        }
-                        if (matchCount === 2) isWinner = true;
-                    }
-                    break;
-
-                case 'HalfSangamA':
-                    let sangamA_Match = `${resultDoc.open_panna}-${resultDoc.close_digit}`;
-                    if (bid.bet_number === sangamA_Match) isWinner = true;
-                    break;
-
-                case 'HalfSangamB': 
-                    let sangamB_Match = `${resultDoc.open_digit}-${resultDoc.close_panna}`;
-                    if (bid.bet_number === sangamB_Match) isWinner = true;
-                    break;
-
-                case 'FullSangam': 
-                    let fullSangam_Match = `${resultDoc.open_panna}-${resultDoc.close_panna}`;
-                    if (bid.bet_number === fullSangam_Match) isWinner = true;
-                    break;
-
-                case 'Cycle Pana': 
-                    if (isCyclePanaWin(bid.bet_number, resultPannaToMatch)) isWinner = true;
-                    break;
-
-                case 'Family Panel': 
-                    if (isFamilyPanelWin(bid.bet_number, resultPannaToMatch)) isWinner = true;
-                    break;
+            // 👉 3. ENGINE SE MAGIC CALCULATION 
+            const checkWinFunction = GameWinEngine[bid.game_type];
+            if (checkWinFunction) {
+                isWinner = checkWinFunction(bid.bet_number, resultDigitToMatch, resultPannaToMatch, resultDoc);
+            } else {
+                console.error(`[SETTLEMENT WARNING] No checker found for game_type: ${bid.game_type}`);
             }
 
+            // 4. Update Database safely with Transactions
             const session = await mongoose.startSession();
             session.startTransaction();
 
@@ -186,9 +174,8 @@ export const runSettlementLogic = async (marketId, resultDoc, sessionType) => {
                     const winningAmount = bid.amount * rate;
 
                     await User.findByIdAndUpdate(bid.user_id, { $inc: { walletBalance: winningAmount } }, { session });
-
                     await Bid.findByIdAndUpdate(bid._id, { status: 'Winner', wonAmount: winningAmount }, { session });
-
+                    
                     await Transaction.create([{
                         userId: bid.user_id,
                         amount: winningAmount,
