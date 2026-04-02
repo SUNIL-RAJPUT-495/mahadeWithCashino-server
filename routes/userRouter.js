@@ -4,7 +4,8 @@ import {
     loginUser, 
     getUser, 
     updateUser, 
-    deleteUser, getUserProfile, getAllUsers, getAdminDashboardStats, getUserPassbook
+    deleteUser, getUserProfile, getAllUsers, getAdminDashboardStats, getUserPassbook,
+    changePassword
 } from "../Controller/userController.js";
 import { authToken } from "../middleware/authToken.js";
 
@@ -18,5 +19,6 @@ userRouter.get("/my-passbook", authToken, getUserPassbook);
 userRouter.put("/update-user/:id", updateUser);
 userRouter.delete("/delete-user/:id", deleteUser);
 userRouter.get("/get-user-profile", authToken, getUserProfile);
+userRouter.put("/change-password/:id", authToken, changePassword);
 
 export default userRouter;

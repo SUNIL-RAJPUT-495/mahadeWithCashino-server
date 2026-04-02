@@ -214,3 +214,17 @@ export const getMarketResults = async (req, res) => {
         res.status(500).json({ message: "Internal server error" });
     }
 };
+
+
+export const getAllResults = async (req, res) => {
+    try {
+        const results = await Result.find()
+            .sort({ date: -1 })
+            .populate('market_id', 'name');
+
+        res.status(200).json({ data: results });
+    } catch (error) {
+        console.error("Error fetching all results:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};

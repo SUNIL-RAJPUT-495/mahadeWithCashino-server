@@ -337,3 +337,27 @@ export const deleteUser = async (req, res) => {
     }
 }
 
+export const changePassword = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { currentPassword, newPassword, confirmPassword } = req.body;
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return res.status(400).json({ message: 'All fields are required' });
+        }
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isPasswordValid) {
+            return res.status(400).json({ message: 'Invalid credentials' });
+        }
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+        user.password = hashedPassword;
+        await user.save();
+        res.status(200).json({ message: 'Password changed successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+}

@@ -1,9 +1,9 @@
 import express from 'express';
 import { sendNotification, getNotifications } from '../Controller/notificationController.js';
 
-const router = express.Router();
+const notificationRouter = express.Router();
 
-router.post('/send', sendNotification);
-router.get('/', getNotifications);
+notificationRouter.post('/send', sendNotification);
+notificationRouter.get('/get-all-notifications', getNotifications);
 
-export default router;
+export default notificationRouter;
