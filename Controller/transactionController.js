@@ -78,7 +78,8 @@ export const updateTransactionStatus = async (req, res) => {
             if (!user) {
                 return res.status(400).json({ message: 'User associated with this transaction not found!' });
             }
-            user.walletBalance += transaction.amount;
+            if (!user.wallet) user.wallet = { realBalance: 0, bonusBalance: 0 };
+            user.wallet.realBalance += transaction.amount;
             await user.save();
             return res.status(400).json({ message: 'Transaction already approved' });
         }
@@ -120,10 +121,18 @@ export const createWithdrawalRequest = async (req, res) => {
         if (!user) {
             return res.status(400).json({ message: 'User not found' });
         }
-        if (user.walletBalance < amount) {
+        let currentBalance = 0;
+        if (user.wallet) {
+            currentBalance = user.wallet.realBalance || 0;
+        } else if (user.walletBalance !== undefined) {
+            currentBalance = user.walletBalance;
+            user.wallet = { realBalance: user.walletBalance, bonusBalance: 0 };
+        }
+
+        if (currentBalance < amount) {
             return res.status(400).json({ message: 'Insufficient balance' });
         }
-        user.walletBalance -= amount;
+        user.wallet.realBalance -= amount;
         await user.save();
 
         const transaction = await Transaction.create({ userId, type: 'Withdrawal', amount, method, transactionId, accountDetails, status: 'Pending' });
@@ -155,7 +164,8 @@ export const updateWithdrowalStatus =async(req,res)=>{
         // --- LOGIC FOR DEPOSIT ---
         if (transaction.type === 'Deposit') {
           if (status === 'Approved') {
-            user.walletBalance += transaction.amount; // Deposit approve hua toh paise add karo
+            if (!user.wallet) user.wallet = { realBalance: 0, bonusBalance: 0 };
+            user.wallet.realBalance += transaction.amount; // Deposit approve hua toh paise add karo
           }
           // Agar reject hua toh kuch nahi karna, bas status update hoga
         } 
@@ -164,7 +174,8 @@ export const updateWithdrowalStatus =async(req,res)=>{
         else if (transaction.type === 'Withdrawal') {
           if (status === 'Rejected') {
             // Agar admin ne withdrawal reject kiya, toh user ke kaate hue paise wapas (refund) kar do
-            user.walletBalance += transaction.amount; 
+            if (!user.wallet) user.wallet = { realBalance: 0, bonusBalance: 0 };
+            user.wallet.realBalance += transaction.amount; 
           }
           // Agar approve hua toh kuch nahi karna kyunki paise hum request ke time hi kaat chuke hain
         }

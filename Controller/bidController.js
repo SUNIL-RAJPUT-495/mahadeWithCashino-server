@@ -148,17 +148,26 @@ export const placeBid = async (req, res) => {
         }
 
         if (finalBidsToSave.length === 0) return res.status(400).json({ message: 'No valid bets to place.' });
-        if (user.walletBalance < backendCalculatedTotalAmount) return res.status(400).json({ message: 'Insufficient wallet balance.' });
+        let currentBalance = 0;
+        if (user.wallet) {
+            currentBalance = user.wallet.realBalance || 0;
+        } else if (user.walletBalance !== undefined) {
+            currentBalance = user.walletBalance;
+            user.wallet = { realBalance: user.walletBalance, bonusBalance: 0 };
+        }
+
+        if (currentBalance < backendCalculatedTotalAmount) return res.status(400).json({ message: 'Insufficient wallet balance.' });
 
         const createdBids = await Bid.insertMany(finalBidsToSave);
-        user.walletBalance -= backendCalculatedTotalAmount;
+        if (!user.wallet) user.wallet = { realBalance: currentBalance, bonusBalance: 0 };
+        user.wallet.realBalance -= backendCalculatedTotalAmount;
         await user.save();
 
         return res.status(201).json({
             success: true,
             message: `Successfully placed ${finalBidsToSave.length} bids.`,
             total_deducted: backendCalculatedTotalAmount,
-            updatedBalance: user.walletBalance
+            updatedBalance: user.wallet.realBalance
         });
 
     } catch (error) {

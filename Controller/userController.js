@@ -46,9 +46,18 @@ export const createUser = async (req, res) => {
 
     } catch (error) {
         console.error("User Creation Error: ", error); 
+        
+        // If it's our custom validation error or a mongoose validation error
+        if (error.message.includes('System mein sirf ek hi Admin') || error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                message: error.message
+            });
+        }
+
         res.status(500).json({ 
             success: false, 
-            message: 'Internal server error', 
+            message: error.message || 'Internal server error', 
             error: error.message 
         });
     }
@@ -86,6 +95,13 @@ export const loginUser = async (req, res) => {
             expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) 
         };
 
+        let totalMoney = 0;
+        if (user.wallet) {
+            totalMoney = (user.wallet.realBalance || 0) + (user.wallet.bonusBalance || 0);
+        } else if (user.walletBalance !== undefined) {
+            totalMoney = user.walletBalance;
+        }
+
         res.cookie("token", token, cookieOptions).status(200).json({
             success: true,
             message: 'Login successful',
@@ -94,7 +110,7 @@ export const loginUser = async (req, res) => {
                 _id: user._id,
                 name: user.name,
                 mobile: user.mobile,
-                walletBalance: user.walletBalance,
+                walletBalance: totalMoney,
                 role: user.role
             }
         });
@@ -116,6 +132,13 @@ export const getUserProfile = async (req, res) => {
             });
         }
 
+        let totalMoney = 0;
+        if (user.wallet) {
+            totalMoney = (user.wallet.realBalance || 0) + (user.wallet.bonusBalance || 0);
+        } else if (user.walletBalance !== undefined) {
+            totalMoney = user.walletBalance;
+        }
+
         res.status(200).json({ 
             success: true, 
             user: {
@@ -123,7 +146,7 @@ export const getUserProfile = async (req, res) => {
                 name: user.name,
                 mobile: user.mobile,
                 email: user.email,
-                walletBalance: user.walletBalance, 
+                walletBalance: totalMoney, 
                 role: user.role,
                 status: user.status,
                 referralCode: user.referralCode

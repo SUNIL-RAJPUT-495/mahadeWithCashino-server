@@ -73,7 +73,7 @@ const checkOddEvenWin = (betNum, resultDigit) => {
 };
 
 const checkRedJodiWin = (betNum, _, __, resultDoc) => {
-    const redList = ['00', '11', '22', '33', '44', '55', '66', '77', '88', '99']; 
+    const redList = ['00', '11', '22', '33', '44', '55', '66', '77', '88', '99'];
     return redList.includes(resultDoc.jodi) && betNum === resultDoc.jodi;
 };
 
@@ -86,7 +86,7 @@ const checkTwoDigitPanaWin = (betNum, _, resultPanna) => {
             let idx = pannaChars.indexOf(char);
             if (idx !== -1) {
                 matchCount++;
-                pannaChars.splice(idx, 1); 
+                pannaChars.splice(idx, 1);
             }
         }
         return matchCount === 2;
@@ -173,9 +173,9 @@ export const runSettlementLogic = async (marketId, resultDoc, sessionType) => {
                     const rate = PAYOUT_RATES[bid.game_type] || 0;
                     const winningAmount = bid.amount * rate;
 
-                    await User.findByIdAndUpdate(bid.user_id, { $inc: { walletBalance: winningAmount } }, { session });
+                    await User.findByIdAndUpdate(bid.user_id, { $inc: { 'wallet.realBalance': winningAmount } }, { session });
                     await Bid.findByIdAndUpdate(bid._id, { status: 'Winner', wonAmount: winningAmount }, { session });
-                    
+
                     await Transaction.create([{
                         userId: bid.user_id,
                         amount: winningAmount,

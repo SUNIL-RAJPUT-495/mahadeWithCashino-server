@@ -38,5 +38,15 @@ const userSchema = new mongoose.Schema({
     type: String
   }
 }, { timestamps: true });
+userSchema.pre('save', async function() {
+    if (this.role !== 'admin') {
+        return;
+    }
 
+    const existingAdmin = await this.constructor.findOne({ role: 'admin' });
+
+    if (existingAdmin && existingAdmin._id.toString() !== this._id.toString()) {
+        throw new Error("Validation Error: Only one admin is allowed");
+    }
+});
 export default mongoose.model('User', userSchema);
