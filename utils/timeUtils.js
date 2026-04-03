@@ -44,3 +44,25 @@ export const getCurrentISTTimeString = () => {
     });
     return formatter.format(new Date());
 };
+
+/** Aaj ki IST calendar date ke liye Mongo query bounds (Result.date se match karne ke liye) */
+export const getISTDayBounds = (date = new Date()) => {
+    const ymd = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+    const start = new Date(`${ymd}T00:00:00+05:30`);
+    const end = new Date(`${ymd}T23:59:59.999+05:30`);
+    return { start, end };
+};
+
+/** Kisi bhi Date ko IST calendar key "YYYY-MM-DD" — purane Result docs ke liye reliable match */
+export const getISTDateKey = (d) =>
+    new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(d));

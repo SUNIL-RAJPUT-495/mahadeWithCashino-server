@@ -1,4 +1,5 @@
 import Notification from '../models/Notification.js';
+import jwt from 'jsonwebtoken';
 
 // Send a custom notification (Admin)
 export const sendNotification = async (req, res) => {
@@ -12,7 +13,8 @@ export const sendNotification = async (req, res) => {
         const notification = new Notification({
             title,
             message,
-            type: 'Alert'
+            type: 'Alert',
+            userId: null,
         });
 
         await notification.save();
@@ -24,14 +26,38 @@ export const sendNotification = async (req, res) => {
     }
 };
 
-// Get all notifications (User & Admin)
+// Get notifications: sab users + (logged-in) apni user-specific rows
 export const getNotifications = async (req, res) => {
     try {
-        // Fetch the 20 most recent notifications
-        const notifications = await Notification.find()
-            .sort({ createdAt: -1 })
-            .limit(20);
-        
+        let userId = null;
+        const auth = req.header('Authorization')?.replace(/^Bearer\s+/i, '');
+        if (auth && process.env.JWT_SECRET) {
+            try {
+                const decoded = jwt.verify(auth, process.env.JWT_SECRET);
+                userId = decoded._id || decoded.id;
+            } catch {
+                /* invalid token — sirf public notifications */
+            }
+        }
+
+        const globalOr = [
+            { userId: null },
+            { userId: { $exists: false } },
+        ];
+
+        let notifications;
+        if (userId) {
+            notifications = await Notification.find({
+                $or: [...globalOr, { userId }],
+            })
+                .sort({ createdAt: -1 })
+                .limit(50);
+        } else {
+            notifications = await Notification.find({ $or: globalOr })
+                .sort({ createdAt: -1 })
+                .limit(50);
+        }
+
         res.status(200).json({ success: true, notifications });
     } catch (error) {
         console.error("getNotifications error:", error);

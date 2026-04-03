@@ -4,6 +4,8 @@ import Bet from '../models/Bid.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { generateUniqueReferralCode } from '../utils/generateReferral.js';
+import { getTransactionSettings, computeReferralAmounts } from '../utils/transactionSettingsHelper.js';
+import { notifyUserBonus } from '../utils/notificationHelper.js';
 
 /** Maps User document to API wallet shape (userSchema.wallet) */
 function walletFromUser(user) {
@@ -34,21 +36,97 @@ export const createUser = async (req, res) => {
             });
         }
 
+        const settings = await getTransactionSettings();
+        const signupBonusAmt = Math.max(0, Number(settings.signupBonus) || 0);
+        const maxReferrals = Math.max(0, Number(settings.maxReferrals) || 0);
+
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(pass, saltRounds);
 
         const myReferralCode = await generateUniqueReferralCode(name);
-        
+
+        const refCodeNorm = refCode && String(refCode).trim() ? String(refCode).trim().toUpperCase() : null;
+        let referrer = null;
+        let referrerAmount = 0;
+        let referredExtraAmount = 0;
+
+        if (refCodeNorm) {
+            referrer = await User.findOne({ referralCode: refCodeNorm });
+            if (referrer) {
+                const alreadyReferredCount = await User.countDocuments({ referredBy: referrer.referralCode });
+                const underCap = maxReferrals === 0 || alreadyReferredCount < maxReferrals;
+                if (underCap) {
+                    const { referrerAmount: rAmt, referredExtraAmount: eAmt } = computeReferralAmounts(settings);
+                    referrerAmount = Math.max(0, rAmt);
+                    referredExtraAmount = Math.max(0, eAmt);
+                }
+            }
+        }
+
+        const initialBonus = signupBonusAmt + referredExtraAmount;
 
         const user = await User.create({ 
             name, 
             mobile, 
             ...(email && String(email).trim() ? { email: String(email).trim().toLowerCase() } : {}),
-            referredBy: refCode || null, 
+            referredBy: refCodeNorm || null, 
             password: hashedPassword, 
             referralCode: myReferralCode,
-            role: role || 'user' 
+            role: role || 'user',
+            wallet: { realBalance: 0, bonusBalance: initialBonus },
         });
+
+        if (signupBonusAmt > 0) {
+            await Transaction.create({
+                userId: user._id,
+                type: 'signup_bonus',
+                amount: signupBonusAmt,
+                method: 'System',
+                transactionId: `SIGNUP-${user._id}`,
+                status: 'Approved',
+                remark: 'Signup bonus',
+            });
+            await notifyUserBonus(
+                user._id,
+                'Signup bonus credited',
+                `₹${signupBonusAmt} bonus aapke wallet (bonus balance) me add ho gaya hai.`
+            );
+        }
+        if (referredExtraAmount > 0 && referrer) {
+            await Transaction.create({
+                userId: user._id,
+                type: 'referral_bonus',
+                amount: referredExtraAmount,
+                method: 'System',
+                transactionId: `REFERRED-${user._id}`,
+                status: 'Approved',
+                remark: 'Referred user bonus',
+            });
+            await notifyUserBonus(
+                user._id,
+                'Referral bonus credited',
+                `₹${referredExtraAmount} referral bonus aapke wallet me add ho gaya hai.`
+            );
+        }
+        if (referrerAmount > 0 && referrer) {
+            if (!referrer.wallet) referrer.wallet = { realBalance: 0, bonusBalance: 0 };
+            referrer.wallet.bonusBalance = (referrer.wallet.bonusBalance || 0) + referrerAmount;
+            await referrer.save();
+            await Transaction.create({
+                userId: referrer._id,
+                type: 'referral_bonus',
+                amount: referrerAmount,
+                method: 'System',
+                transactionId: `REFERRER-${user._id}`,
+                status: 'Approved',
+                remark: `Referral reward — ${user.name}`,
+            });
+            await notifyUserBonus(
+                referrer._id,
+                'Referral reward credited',
+                `₹${referrerAmount} bonus — ${user.name} ne aapka referral code use kiya.`
+            );
+        }
 
         const userResponse = user.toObject();
         delete userResponse.password;
@@ -287,6 +365,28 @@ export const getUserPassbook = async (req, res) => {
                     rawDate: date.getTime(),
                     status: t.status.toUpperCase(),
                     description: `Deposit via ${t.method}`
+                });
+            } else if (t.type === 'signup_bonus') {
+                passbook.push({
+                    id: `txn-${t._id}`,
+                    type: "CREDIT",
+                    amount: t.amount,
+                    date: dateStr,
+                    time: timeStr,
+                    rawDate: date.getTime(),
+                    status: (t.status || 'Approved').toUpperCase(),
+                    description: t.remark || 'Signup bonus',
+                });
+            } else if (t.type === 'referral_bonus') {
+                passbook.push({
+                    id: `txn-${t._id}`,
+                    type: "CREDIT",
+                    amount: t.amount,
+                    date: dateStr,
+                    time: timeStr,
+                    rawDate: date.getTime(),
+                    status: (t.status || 'Approved').toUpperCase(),
+                    description: t.remark || 'Referral bonus',
                 });
             } else if (t.type === 'Withdrawal') {
                 passbook.push({

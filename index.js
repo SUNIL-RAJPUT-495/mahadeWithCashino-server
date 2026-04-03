@@ -12,6 +12,9 @@ import marketRouter from './routes/marketRoutes.js';
 import upiRoutes from './routes/upiRoutes.js';
 import { setupStaticFolders } from './middleware/staticConfig.js';
 import transactionSettingRouter from './routes/transationSetting.router.js';
+import cron from 'node-cron';
+import { resetDailyMarketDisplay } from './jobs/resetMarketDisplay.js';
+
 const app = express();
 
 
@@ -26,6 +29,21 @@ app.use(morgan('dev'));
 setupStaticFolders(app);
 connectDB();
 
+// Har din raat 12:00 IST — home/market cards par live result hata kar *** / ** placeholders
+cron.schedule(
+    '0 0 * * *',
+    async () => {
+        try {
+            const r = await resetDailyMarketDisplay();
+            console.log(
+                `[cron] Daily market display reset — modified: ${r.modifiedCount ?? r.matchedCount}`
+            );
+        } catch (e) {
+            console.error('[cron] resetDailyMarketDisplay failed:', e);
+        }
+    },
+    { timezone: 'Asia/Kolkata' }
+);
 
 app.get('/', (req, res) => {
   res.send('Admin Panel API is running on Vercel Serverless!');

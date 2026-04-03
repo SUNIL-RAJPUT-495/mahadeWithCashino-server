@@ -1,8 +1,9 @@
 import Market from "../models/Market.js";
 import Result from "../models/Result.js";
-import { parseTimeToMinutes, getCurrentISTMinutes } from "../utils/timeUtils.js";
-import Notification from "../models/Notification.js";
+import { parseTimeToMinutes, getCurrentISTMinutes, getISTDateKey } from "../utils/timeUtils.js";
 import { runSettlementLogic } from "../services/settlementService.js";
+import { resetDailyMarketDisplay } from "../jobs/resetMarketDisplay.js";
+import { notifyResultDeclared } from "../utils/notificationHelper.js";
 
 
 export const addGame = async (req, res) => {
@@ -39,9 +40,42 @@ export const addGame = async (req, res) => {
     }
 }
 
+/** Home card: sirf AAJ (IST) ke Result se number dikhao. Aaj ka Result na ho to Market me purana bhi na dikhe — *** / ** */
+function applyTodayResultDisplay(game, todayResult) {
+    if (!todayResult) {
+        return {
+            ...game,
+            open_pana: '***',
+            jodi_result: '**',
+            close_pana: '***',
+        };
+    }
+    const open_pana = todayResult.open_panna || '***';
+    const close_pana = todayResult.close_panna || '***';
+    const displayOpen = todayResult.open_digit || '*';
+    const displayClose = todayResult.close_digit || '*';
+    const jodi_result = `${displayOpen}${displayClose}`;
+    return {
+        ...game,
+        open_pana,
+        jodi_result,
+        close_pana,
+    };
+}
+
 export const getAllGames = async (req, res) => {
     try {
         const games = await Market.find().lean();
+
+        const todayKey = getISTDateKey(new Date());
+        const recentCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+        const recentResults = await Result.find({ date: { $gte: recentCutoff } }).lean();
+
+        const resultByMarket = new Map();
+        for (const r of recentResults) {
+            if (getISTDateKey(r.date) !== todayKey) continue;
+            resultByMarket.set(String(r.market_id), r);
+        }
 
         const currentMBM = getCurrentISTMinutes();
         const gamesWithStatus = games.map((game) => {
@@ -70,8 +104,11 @@ export const getAllGames = async (req, res) => {
                 }
             }
 
+            const todayResult = resultByMarket.get(String(game._id));
+            const withDisplay = applyTodayResultDisplay(game, todayResult);
+
             return {
-                ...game,
+                ...withDisplay,
                 is_closed: currentStatus === 'Closed',
                 status: currentStatus
             };
@@ -134,7 +171,6 @@ export const declareResult = async (req, res) => {
             if (close_panna) runCloseSettlement = true;
 
         } else {
-            // Result exist karta hai, hume update karna hai (Jaise Close result baad mein aaya)
             if (open_panna && !resultDoc.open_panna) {
                 resultDoc.open_panna = open_panna;
                 resultDoc.open_digit = open_digit;
@@ -164,12 +200,12 @@ export const declareResult = async (req, res) => {
 
         if (runOpenSettlement) runSettlementLogic(market_id, resultDoc, 'Open');
         if (runCloseSettlement) runSettlementLogic(market_id, resultDoc, 'Close');
-        
+
         try {
-            let notifMessage = `Result Update: ${marketDoc.open_pana}-${marketDoc.jodi_result}-${marketDoc.close_pana}`;
-            // await Notification.create({ ... });
-        } catch (e) { 
-            console.error("Notification Error:", e); 
+            const resultLine = `${marketDoc.open_pana}-${marketDoc.jodi_result}-${marketDoc.close_pana}`;
+            await notifyResultDeclared(marketDoc.name || 'Market', resultLine);
+        } catch (e) {
+            console.error("Notification Error:", e);
         }
 
         res.status(200).json({ 
@@ -226,5 +262,39 @@ export const getAllResults = async (req, res) => {
     } catch (error) {
         console.error("Error fetching all results:", error);
         res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+
+export const resetDailyMarketDisplayAdmin = async (req, res) => {
+    try {
+        const r = await resetDailyMarketDisplay();
+        res.status(200).json({
+            success: true,
+            message: 'Market display reset to placeholders.',
+            modifiedCount: r.modifiedCount ?? r.matchedCount,
+        });
+    } catch (error) {
+        console.error('resetDailyMarketDisplayAdmin:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/** External cron (Vercel Cron / GitHub Actions): header x-cron-secret must match CRON_SECRET */
+export const cronResetDailyMarketDisplay = async (req, res) => {
+    const secret = req.headers['x-cron-secret'];
+    if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    try {
+        const r = await resetDailyMarketDisplay();
+        res.status(200).json({
+            success: true,
+            message: 'OK',
+            modifiedCount: r.modifiedCount ?? r.matchedCount,
+        });
+    } catch (error) {
+        console.error('cronResetDailyMarketDisplay:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 };

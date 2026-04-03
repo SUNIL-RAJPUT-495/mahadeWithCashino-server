@@ -1,5 +1,6 @@
 import Transaction from "../models/Transaction.js";
 import User from "../models/User.js";
+import { getTransactionSettings } from "../utils/transactionSettingsHelper.js";
 
 
 export const createDepositRequest = async (req, res) => {
@@ -17,6 +18,15 @@ export const createDepositRequest = async (req, res) => {
         const depositAmount = Number(amount);
         if (depositAmount <= 0) {
             return res.status(400).json({ message: 'Invalid deposit amount' });
+        }
+
+        const settings = await getTransactionSettings();
+        const minDeposit = Math.max(0, Number(settings.minDeposit) || 0);
+        if (minDeposit > 0 && depositAmount < minDeposit) {
+            return res.status(400).json({
+                message: `Minimum deposit amount is ₹${minDeposit}`,
+                minDeposit,
+            });
         }
 
         const user = await User.findById(userId);
@@ -117,6 +127,20 @@ export const createWithdrawalRequest = async (req, res) => {
         if (!userId || !amount || !method || !transactionId || !accountDetails) {
             return res.status(400).json({ message: 'All fields are required' });
         }
+        const withdrawAmount = Number(amount);
+        if (withdrawAmount <= 0) {
+            return res.status(400).json({ message: 'Invalid withdrawal amount' });
+        }
+
+        const settings = await getTransactionSettings();
+        const minWithdrawal = Math.max(0, Number(settings.minWithdrawal) || 0);
+        if (minWithdrawal > 0 && withdrawAmount < minWithdrawal) {
+            return res.status(400).json({
+                message: `Minimum withdrawal amount is ₹${minWithdrawal}`,
+                minWithdrawal,
+            });
+        }
+
         const user = await User.findById(userId);
         if (!user) {
             return res.status(400).json({ message: 'User not found' });
@@ -124,13 +148,21 @@ export const createWithdrawalRequest = async (req, res) => {
         if (!user.wallet) user.wallet = { realBalance: 0, bonusBalance: 0 };
         const currentBalance = user.wallet.realBalance || 0;
 
-        if (currentBalance < amount) {
+        if (currentBalance < withdrawAmount) {
             return res.status(400).json({ message: 'Insufficient balance' });
         }
-        user.wallet.realBalance -= amount;
+        user.wallet.realBalance -= withdrawAmount;
         await user.save();
 
-        const transaction = await Transaction.create({ userId, type: 'Withdrawal', amount, method, transactionId, accountDetails, status: 'Pending' });
+        const transaction = await Transaction.create({
+            userId,
+            type: 'Withdrawal',
+            amount: withdrawAmount,
+            method,
+            transactionId,
+            accountDetails,
+            status: 'Pending',
+        });
         res.status(201).json({ message: 'Withdrawal request submitted successfully!', transaction });
        
     } catch (error) {

@@ -1,4 +1,5 @@
 import TransactionSetting from "../models/TransactionSetting.js";
+import { notifyBonusSettingsUpdated } from "../utils/notificationHelper.js";
 
 export const getSettings = async (req, res) => {
     try {
@@ -18,29 +19,36 @@ export const getSettings = async (req, res) => {
 
 export const updateSettings = async (req, res) => {
     try {
-        const { 
-            signupBonus, 
-            referralBonus, 
-            referredBonus, 
-            maxReferrals, 
-            isPercentage, 
-            minDeposit, 
-            minWithdrawal 
-        } = req.body;
+        const body = req.body;
+        const $set = {};
+        const keys = [
+            'signupBonus',
+            'referralBonus',
+            'referredBonus',
+            'maxReferrals',
+            'isPercentage',
+            'minDeposit',
+            'minWithdrawal',
+        ];
+        for (const k of keys) {
+            if (body[k] !== undefined) $set[k] = body[k];
+        }
 
         const updatedSettings = await TransactionSetting.findOneAndUpdate(
-            {}, 
-            { 
-                signupBonus, 
-                referralBonus, 
-                referredBonus, 
-                maxReferrals, 
-                isPercentage, 
-                minDeposit, 
-                minWithdrawal 
-            },
-            { new: true, upsert: true } 
+            {},
+            { $set },
+            { new: true, upsert: true }
         );
+
+        const bonusKeys = ['signupBonus', 'referralBonus', 'referredBonus', 'maxReferrals', 'isPercentage', 'minDeposit', 'minWithdrawal'];
+        const touchedBonus = bonusKeys.some((k) => body[k] !== undefined);
+        if (touchedBonus) {
+            try {
+                await notifyBonusSettingsUpdated();
+            } catch (e) {
+                console.error("Bonus settings notification:", e);
+            }
+        }
 
         res.status(200).json({ 
             success: true, 
