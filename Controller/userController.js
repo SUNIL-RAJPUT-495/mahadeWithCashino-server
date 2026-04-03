@@ -3,11 +3,21 @@ import Transaction from '../models/Transaction.js';
 import Bet from '../models/Bid.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import { generateUniqueReferralCode } from '../utils/generateReferral.js';
 
+/** Maps User document to API wallet shape (userSchema.wallet) */
+function walletFromUser(user) {
+    const real = user?.wallet?.realBalance ?? 0;
+    const bonus = user?.wallet?.bonusBalance ?? 0;
+    return {
+        wallet: { realBalance: real, bonusBalance: bonus },
+        walletBalance: real + bonus
+    };
+}
 
 export const createUser = async (req, res) => {
     try {
-        const { name, mobile, refCode, pass, role } = req.body;
+        const { name, mobile, email, refCode, pass, role } = req.body;
 
         if (!name || !mobile || !pass) {
             return res.status(400).json({ 
@@ -27,11 +37,16 @@ export const createUser = async (req, res) => {
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(pass, saltRounds);
 
+        const myReferralCode = await generateUniqueReferralCode(name);
+        
+
         const user = await User.create({ 
             name, 
             mobile, 
-            referralCode: refCode || '', 
+            ...(email && String(email).trim() ? { email: String(email).trim().toLowerCase() } : {}),
+            referredBy: refCode || null, 
             password: hashedPassword, 
+            referralCode: myReferralCode,
             role: role || 'user' 
         });
 
@@ -47,7 +62,6 @@ export const createUser = async (req, res) => {
     } catch (error) {
         console.error("User Creation Error: ", error); 
         
-        // If it's our custom validation error or a mongoose validation error
         if (error.message.includes('System mein sirf ek hi Admin') || error.name === 'ValidationError') {
             return res.status(400).json({
                 success: false,
@@ -76,6 +90,10 @@ export const loginUser = async (req, res) => {
             return res.status(400).json({ success: false, message: 'User not found' });
         }
 
+        if (user.status === 'Blocked') {
+            return res.status(403).json({ success: false, message: 'Account is blocked' });
+        }
+
         const isPasswordValid = await bcrypt.compare(pass, user.password);
         if (!isPasswordValid) {
             return res.status(400).json({ success: false, message: 'Invalid credentials' });
@@ -95,12 +113,7 @@ export const loginUser = async (req, res) => {
             expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) 
         };
 
-        let totalMoney = 0;
-        if (user.wallet) {
-            totalMoney = (user.wallet.realBalance || 0) + (user.wallet.bonusBalance || 0);
-        } else if (user.walletBalance !== undefined) {
-            totalMoney = user.walletBalance;
-        }
+        const { wallet, walletBalance } = walletFromUser(user);
 
         res.cookie("token", token, cookieOptions).status(200).json({
             success: true,
@@ -110,8 +123,13 @@ export const loginUser = async (req, res) => {
                 _id: user._id,
                 name: user.name,
                 mobile: user.mobile,
-                walletBalance: totalMoney,
-                role: user.role
+                email: user.email,
+                wallet,
+                walletBalance,
+                role: user.role,
+                status: user.status,
+                referralCode: user.referralCode,
+                referredBy: user.referredBy
             }
         });
 
@@ -132,12 +150,7 @@ export const getUserProfile = async (req, res) => {
             });
         }
 
-        let totalMoney = 0;
-        if (user.wallet) {
-            totalMoney = (user.wallet.realBalance || 0) + (user.wallet.bonusBalance || 0);
-        } else if (user.walletBalance !== undefined) {
-            totalMoney = user.walletBalance;
-        }
+        const { wallet, walletBalance } = walletFromUser(user);
 
         res.status(200).json({ 
             success: true, 
@@ -146,10 +159,14 @@ export const getUserProfile = async (req, res) => {
                 name: user.name,
                 mobile: user.mobile,
                 email: user.email,
-                walletBalance: totalMoney, 
+                wallet,
+                walletBalance, 
                 role: user.role,
                 status: user.status,
-                referralCode: user.referralCode
+                referralCode: user.referralCode,
+                referredBy: user.referredBy,
+                createdAt: user.createdAt,
+                updatedAt: user.updatedAt
             }
         });
     } catch (error) {
@@ -174,7 +191,12 @@ export const getUser = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
     try {
-        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        const raw = await User.find().select('-password').sort({ createdAt: -1 });
+        const users = raw.map((u) => {
+            const doc = u.toObject();
+            const { walletBalance } = walletFromUser(doc);
+            return { ...doc, walletBalance };
+        });
         res.status(200).json({ users });
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
@@ -340,12 +362,20 @@ export const getUserPassbook = async (req, res) => {
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, email, phone } = req.body;
-        if (!name || !email || !phone) {
-            return res.status(400).json({ message: 'All fields are required' });
+        const { name, email, mobile } = req.body;
+        if (!name || !mobile) {
+            return res.status(400).json({ message: 'Name and mobile are required' });
         }
-        const user = await User.findByIdAndUpdate(id, { name, email, phone }, { new: true });
-        res.status(200).json({ message: 'User updated successfully', user });
+        const update = { name, mobile };
+        if (email !== undefined && email !== null && String(email).trim() !== '') {
+            update.email = String(email).trim().toLowerCase();
+        }
+        const user = await User.findByIdAndUpdate(id, update, { new: true }).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        const { walletBalance } = walletFromUser(user);
+        res.status(200).json({ message: 'User updated successfully', user: { ...user.toObject(), walletBalance } });
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
@@ -384,3 +414,6 @@ export const changePassword = async (req, res) => {
         res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 }
+
+
+

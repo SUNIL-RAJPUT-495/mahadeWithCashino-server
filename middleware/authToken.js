@@ -23,6 +23,14 @@ export const authToken = async (req, res, next) => {
             });
         }
 
+        if (userExist.status === 'Blocked') {
+            res.clearCookie("token");
+            return res.status(403).json({
+                success: false,
+                message: "Account is blocked"
+            });
+        }
+
         if (!decode) {
             return res.status(401).json({
                 message: "Unauthorized access",

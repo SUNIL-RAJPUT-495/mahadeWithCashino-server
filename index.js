@@ -9,7 +9,9 @@ import notificationRouter from './routes/notificationRoutes.js';
 import chatRouter from './routes/chat.router.js';
 import bidRouter from './routes/bidRoutes.js';
 import marketRouter from './routes/marketRoutes.js';
-
+import upiRoutes from './routes/upiRoutes.js';
+import { setupStaticFolders } from './middleware/staticConfig.js';
+import transactionSettingRouter from './routes/transationSetting.router.js';
 const app = express();
 
 
@@ -21,7 +23,7 @@ app.use(cors({
 app.use(express.json());
 app.use(morgan('dev'));
 
-
+setupStaticFolders(app);
 connectDB();
 
 
@@ -36,6 +38,8 @@ app.use("/api/market", marketRouter);
 app.use("/api/transaction", transactionRouter);
 app.use("/api/notification", notificationRouter);
 app.use("/api/chat", chatRouter);
+app.use('/api/upi', upiRoutes);
+app.use('/api/transaction-setting', transactionSettingRouter);
 
 const PORT = process.env.PORT || 5000;
 

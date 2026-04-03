@@ -4,17 +4,16 @@ import User from '../models/User.js';
 export const verifyAdminToken = async (req, res, next) => {
     try {
         const token = req.headers.authorization?.split(" ")[1];
-        console.log(token)
+
         if (!token) {
-            
+
             return res.status(401).json({ message: "Token missing, please login again" });
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log(decoded)
+
         const currentUser = await User.findById(decoded._id);
 
-        console.log(currentUser)
 
         if (!currentUser) {
             return res.status(401).json({ message: "User no longer exists. Please log in again.", action: "LOGOUT" });
@@ -24,6 +23,11 @@ export const verifyAdminToken = async (req, res, next) => {
             return res.status(403).json({ message: "You are not authorized as an admin." });
         }
 
+        // --- YEH 3 LINES ADD KAREIN ---
+        console.log("=== DB CHECK ===");
+        console.log("Token ID:", decoded._id);
+        console.log("Database Role kya hai?:", currentUser.role);
+        // ------------------------------
         req.user = currentUser;
         next();
 

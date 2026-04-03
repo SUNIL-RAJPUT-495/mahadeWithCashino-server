@@ -93,7 +93,7 @@ export const getChatUsers = async (req, res) => {
         const conversations = await Conversation.find({
             participants: { $in: [loggedInUserId] }
         })
-        .populate("participants", "name email") 
+        .populate("participants", "name email mobile") 
         .sort({ updatedAt: -1 });
 
         const finalData = conversations.map(conv => {
@@ -102,7 +102,8 @@ export const getChatUsers = async (req, res) => {
                 conversationId: conv._id,
                 _id: otherUser ? otherUser._id : "Unknown",
                 name: otherUser ? otherUser.name : "User Not Found",
-                email: otherUser ? otherUser.email : "No Email",
+                email: otherUser ? otherUser.email : "",
+                mobile: otherUser ? otherUser.mobile : "",
                 lastMessage: conv.lastMessage,
                 lastChatTime: conv.updatedAt
             };

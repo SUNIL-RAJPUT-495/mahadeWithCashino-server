@@ -6,7 +6,12 @@ mongoose.connect("mongodb://localhost:27017/mahadev_project") // Assuming localh
   .then(async () => {
     const db = mongoose.connection.db;
     const users = await db.collection('users').find({}).toArray();
-    console.log(JSON.stringify(users.map(u => ({ id: u._id, mobile: u.mobile, wallet: u.wallet, walletBalance: u.walletBalance })), null, 2));
+    console.log(JSON.stringify(users.map(u => ({
+        id: u._id,
+        mobile: u.mobile,
+        wallet: u.wallet,
+        total: (u.wallet?.realBalance || 0) + (u.wallet?.bonusBalance || 0)
+    })), null, 2));
     process.exit(0);
   })
   .catch(err => {

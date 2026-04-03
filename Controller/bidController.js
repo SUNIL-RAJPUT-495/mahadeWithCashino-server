@@ -148,18 +148,12 @@ export const placeBid = async (req, res) => {
         }
 
         if (finalBidsToSave.length === 0) return res.status(400).json({ message: 'No valid bets to place.' });
-        let currentBalance = 0;
-        if (user.wallet) {
-            currentBalance = user.wallet.realBalance || 0;
-        } else if (user.walletBalance !== undefined) {
-            currentBalance = user.walletBalance;
-            user.wallet = { realBalance: user.walletBalance, bonusBalance: 0 };
-        }
+        if (!user.wallet) user.wallet = { realBalance: 0, bonusBalance: 0 };
+        const currentBalance = user.wallet.realBalance || 0;
 
         if (currentBalance < backendCalculatedTotalAmount) return res.status(400).json({ message: 'Insufficient wallet balance.' });
 
         const createdBids = await Bid.insertMany(finalBidsToSave);
-        if (!user.wallet) user.wallet = { realBalance: currentBalance, bonusBalance: 0 };
         user.wallet.realBalance -= backendCalculatedTotalAmount;
         await user.save();
 
@@ -175,11 +169,6 @@ export const placeBid = async (req, res) => {
         res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
     }
 };
-
-
-
-
-
 
 
 

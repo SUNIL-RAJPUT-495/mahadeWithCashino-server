@@ -121,13 +121,8 @@ export const createWithdrawalRequest = async (req, res) => {
         if (!user) {
             return res.status(400).json({ message: 'User not found' });
         }
-        let currentBalance = 0;
-        if (user.wallet) {
-            currentBalance = user.wallet.realBalance || 0;
-        } else if (user.walletBalance !== undefined) {
-            currentBalance = user.walletBalance;
-            user.wallet = { realBalance: user.walletBalance, bonusBalance: 0 };
-        }
+        if (!user.wallet) user.wallet = { realBalance: 0, bonusBalance: 0 };
+        const currentBalance = user.wallet.realBalance || 0;
 
         if (currentBalance < amount) {
             return res.status(400).json({ message: 'Insufficient balance' });
@@ -199,7 +194,7 @@ export const updateWithdrowalStatus =async(req,res)=>{
 export const getAllPendingWithdrawals = async (req, res) => {
     try {
       const pendingWithdrawals = await Transaction.find({ type: 'Withdrawal', status: 'Pending' })
-        .populate('userId', 'name phone') // Name aur Phone chahiye admin ko
+        .populate('userId', 'name mobile')
         .sort({ createdAt: -1 });
   
       res.status(200).json(pendingWithdrawals);
