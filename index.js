@@ -19,7 +19,7 @@ const app = express();
 
 
 app.use(cors({ 
-  origin: ["http://localhost:5173", "https://mahadematka.vercel.app", process.env.FRONTEND_URL], // Apna production URL env mein daal dena
+  origin: ["http://localhost:5173", "https://mahade-with-cashino-client.vercel.app", process.env.FRONTEND_URL], // Apna production URL env mein daal dena
   credentials: true 
 }));
 
